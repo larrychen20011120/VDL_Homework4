@@ -1,0 +1,4 @@
+__pycache__/
+hw4_release_dataset/
+train_ckpt/
+logs/
