@@ -319,6 +319,10 @@ class PromptIR(nn.Module):
                     
         self.output = nn.Conv2d(int(dim*2**1), out_channels, kernel_size=3, stride=1, padding=1, bias=bias)
 
+        ### MY CODE
+        self.mid3_head = nn.Conv2d(dim*4, 3, kernel_size=3, padding=1, bias=bias)
+        self.mid2_head = nn.Conv2d(dim*2, 3, kernel_size=3, padding=1, bias=bias)
+
     def forward(self, inp_img,noise_emb = None):
 
         inp_enc_level1 = self.patch_embed(inp_img)
@@ -354,6 +358,16 @@ class PromptIR(nn.Module):
             out_dec_level3 = self.noise_level2(out_dec_level3)
             out_dec_level3 = self.reduce_noise_level2(out_dec_level3)
 
+        ### MY CODE
+        mid3 = self.mid3_head(out_dec_level3)
+        mid3 = F.interpolate(
+            mid3, 
+            size=inp_img.shape[-2:], 
+            mode='bilinear', 
+            align_corners=False
+        )
+        mid3 = mid3 + inp_img
+
         inp_dec_level2 = self.up3_2(out_dec_level3)
         inp_dec_level2 = torch.cat([inp_dec_level2, out_enc_level2], 1)
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
@@ -365,6 +379,16 @@ class PromptIR(nn.Module):
             out_dec_level2 = torch.cat([out_dec_level2, dec1_param], 1)
             out_dec_level2 = self.noise_level1(out_dec_level2)
             out_dec_level2 = self.reduce_noise_level1(out_dec_level2)
+
+        ### MY CODE
+        mid2 = self.mid2_head(out_dec_level2)
+        mid2 = F.interpolate(
+            mid2, 
+            size=inp_img.shape[-2:], 
+            mode='bilinear', 
+            align_corners=False
+        )
+        mid2 = mid2 + inp_img
         
         inp_dec_level1 = self.up2_1(out_dec_level2)
         inp_dec_level1 = torch.cat([inp_dec_level1, out_enc_level1], 1)
@@ -377,4 +401,4 @@ class PromptIR(nn.Module):
         out_dec_level1 = self.output(out_dec_level1) + inp_img
 
 
-        return out_dec_level1
+        return mid3, mid2, out_dec_level1
