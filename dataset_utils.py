@@ -2,11 +2,29 @@ import os
 from PIL import Image
 import random
 import numpy as np
+import torch
 
 from torch.utils.data import Dataset
 from torchvision import transforms
+import albumentations as A
 
 def random_augment(image1, image2):
+
+    if random.random() < 0.5:
+
+        image = np.asarray(image2)
+
+        if random.random() < 0.5:
+            # rain
+            rain_type = random.sample(["drizzle", "heavy", "torrential"], 1)[0]
+            transform = A.RandomRain(rain_type=rain_type)
+            image1 = transform(image=image)['image']
+        else:
+            # snow
+            transform = A.RandomSnow()
+            image1 = transform(image=image)['image']
+
+        image1 = Image.fromarray(image1)
 
     if random.random() > 0.5:
         brightness_factor = random.uniform(0.8, 1.2)
@@ -58,6 +76,10 @@ class HW4Dataset(Dataset):
         self.is_train = is_train
 
         self.id2name = dict()
+        self.labels  = [
+            0 if i < len(snow_ids) else 1
+            for i in range(len(snow_ids)+len(rain_ids))
+        ]
 
         for id in range(len(snow_ids)+len(rain_ids)):
             if id < len(snow_ids):
@@ -65,7 +87,6 @@ class HW4Dataset(Dataset):
             else:
                 self.id2name[id] = f"rain-{rain_ids[id-len(snow_ids)]}"
 
-        
         
         snow_image_paths = [
             os.path.join("hw4_release_dataset", "train", "degraded", f"snow-{snow_id}.png")
@@ -104,8 +125,9 @@ class HW4Dataset(Dataset):
 
         degrad_img = transforms.ToTensor()(degrad_img)
         clean_img = transforms.ToTensor()(clean_img)
+        label = torch.tensor(self.labels[idx], dtype=torch.long)
 
-        return [self.id2name[idx], idx], degrad_img, clean_img
+        return label, degrad_img, clean_img
     
     def __len__(self):
         return len(self.degraded_image_paths)

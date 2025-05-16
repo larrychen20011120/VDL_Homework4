@@ -51,7 +51,7 @@ if __name__ == '__main__':
             degrad_img = degrad_img.unsqueeze(0)
             degrad_img = degrad_img.to(args.device)
 
-            _, _, restored_img = net(degrad_img)
+            restored_img = net(degrad_img)
             restored_img =  restored_img.squeeze(0)
             restored_img *= 255
             restored_img = restored_img.cpu().numpy().astype(np.uint8)

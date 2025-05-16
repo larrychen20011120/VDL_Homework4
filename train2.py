@@ -25,9 +25,10 @@ class PromptIRModel(pl.LightningModule):
         super().__init__()
 
         self.net = PromptIR(decoder=True)
+
+        self.log_sigma2 = nn.Parameter(torch.zeros(2))
         
-        self.loss_fn  = nn.L1Loss()
-        self.classification_loss_fn = nn.CrossEntropyLoss()
+        self.restored_loss_fn  = nn.L1Loss(reduction='none')
         self.opt = opt
 
         self.automatic_optimization = False
@@ -49,11 +50,15 @@ class PromptIRModel(pl.LightningModule):
         optimizer = self.optimizers()
 
         restored = self.net(degrad_img)
-        
-        loss = self.loss_fn(restored, clean_img) / self.opt.grad_accumulation
-        
 
-        self.manual_backward(loss)
+        sigma2 = torch.exp(self.log_sigma2[label])   # (batch,)
+        
+        restoration_loss = self.restored_loss_fn(restored, clean_img)
+        restoration_loss = restoration_loss.view(restoration_loss.size(0), -1).mean(-1) # (batch,)
+
+        total_loss = torch.mean( restoration_loss/(2*sigma2) + 0.5*torch.log(sigma2) ) / self.opt.grad_accumulation
+
+        self.manual_backward(total_loss)
 
         if (batch_idx + 1) % self.opt.grad_accumulation == 0:
             self.clip_gradients(
@@ -68,17 +73,17 @@ class PromptIRModel(pl.LightningModule):
         # Logging to TensorBoard (if installed) by default
         # self.log("Train/Classification Loss", L_cls)
         # self.log("Train/Restoration Loss", L_rest)
-        self.log("Train/Total Loss", loss)
+        self.log("Train/Total Loss", total_loss)
         # self.log("Train/Weight Classification", torch.exp(-self.log_sigma_cls).detach())
         # self.log("Train/Weight Restoration", torch.exp(-self.log_sigma_rest).detach())
-        return loss
+        return total_loss
     
     def validation_step(self, batch, batch_idx):
         # this is the validation loop
         (label, degrad_patch, clean_patch) = batch
         restored = self.net(degrad_patch)
         
-        loss = self.loss_fn(restored, clean_patch) / self.opt.grad_accumulation
+        loss = self.restored_loss_fn(restored, clean_patch).mean()
 
         psnr, ssim, _ = compute_psnr_ssim(restored, clean_patch)
 
@@ -98,14 +103,16 @@ class PromptIRModel(pl.LightningModule):
         )
 
         warmup_epochs = self.opt.warmup_epochs
-        warmup_scheduler = LinearLR(
-            optimizer,
-            start_factor=1e-3,     
-            end_factor=1.0,        
-            total_iters=warmup_epochs
-        )
+        
 
         if warmup_epochs != 0:
+
+            warmup_scheduler = LinearLR(
+                optimizer,
+                start_factor=1e-3,     
+                end_factor=1.0,        
+                total_iters=warmup_epochs
+            )
             cosine_scheduler = CosineAnnealingLR(
                 optimizer,
                 T_max=self.opt.epochs - warmup_epochs,
@@ -117,6 +124,7 @@ class PromptIRModel(pl.LightningModule):
                 schedulers=[warmup_scheduler, cosine_scheduler],
                 milestones=[warmup_epochs],
             )
+            
         else:
             scheduler = CosineAnnealingLR(
                 optimizer,
@@ -130,7 +138,7 @@ class PromptIRModel(pl.LightningModule):
 
 import os
 
-log_entry = os.path.join("logs", "PromptIR")
+log_entry = os.path.join("logs", "PromptIR-UEM")
 
 def main(opt):    
     
@@ -205,7 +213,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=1,help="Batch size to use per GPU")
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate of encoder.')
     parser.add_argument('--grad_accumulation', type=int, default=16, help='Gradient accumulation steps.')
-    parser.add_argument('--weight_decay', type=float, default=5e-4, help='weight decay of encoder.')
+    parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay of encoder.')
     parser.add_argument('--clip_norm', type=float, default=1.0, help='gradient clipping norm.')
     parser.add_argument('--num_workers', type=int, default=16, help='number of workers.')
     parser.add_argument('--warmup_epochs', type=int, default=0, help='number of warmup epochs.')
