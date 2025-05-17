@@ -8,9 +8,9 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 import albumentations as A
 
-def random_augment(image1, image2):
+def random_augment(image1, image2, label):
 
-    if random.random() < 0.5:
+    if random.random() < 0.3:
 
         image = np.asarray(image2)
 
@@ -19,10 +19,12 @@ def random_augment(image1, image2):
             rain_type = random.sample(["drizzle", "heavy", "torrential"], 1)[0]
             transform = A.RandomRain(rain_type=rain_type)
             image1 = transform(image=image)['image']
+            label = 1
         else:
             # snow
             transform = A.RandomSnow()
             image1 = transform(image=image)['image']
+            label = 0
 
         image1 = Image.fromarray(image1)
 
@@ -65,7 +67,7 @@ def random_augment(image1, image2):
         )
 
 
-    return image1, image2
+    return image1, image2, label
 
 
 class HW4Dataset(Dataset):
@@ -111,13 +113,14 @@ class HW4Dataset(Dataset):
     def __getitem__(self, idx):
         degraded_path = self.degraded_image_paths[idx]
         clean_path = self.clean_image_paths[idx]
+        label = self.labels[idx]
         
 
         if self.is_train:
 
             degrad_img = Image.open(degraded_path).convert('RGB')
             clean_img =  Image.open(clean_path).convert('RGB')
-            degrad_img, clean_img = random_augment(degrad_img, clean_img)
+            degrad_img, clean_img, label = random_augment(degrad_img, clean_img, label)
 
         else:
             degrad_img = Image.open(degraded_path).convert('RGB')
@@ -125,7 +128,7 @@ class HW4Dataset(Dataset):
 
         degrad_img = transforms.ToTensor()(degrad_img)
         clean_img = transforms.ToTensor()(clean_img)
-        label = torch.tensor(self.labels[idx], dtype=torch.long)
+        label = torch.tensor(label, dtype=torch.long)
 
         return label, degrad_img, clean_img
     
