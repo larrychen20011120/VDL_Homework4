@@ -10,23 +10,23 @@ import albumentations as A
 
 def random_augment(image1, image2, label):
 
-    if random.random() < 0.3:
+    # if random.random() < 0.3:
 
-        image = np.asarray(image2)
+    #     image = np.asarray(image2)
 
-        if random.random() < 0.5:
-            # rain
-            rain_type = random.sample(["drizzle", "heavy", "torrential"], 1)[0]
-            transform = A.RandomRain(rain_type=rain_type)
-            image1 = transform(image=image)['image']
-            label = 1
-        else:
-            # snow
-            transform = A.RandomSnow()
-            image1 = transform(image=image)['image']
-            label = 0
+    #     if random.random() < 0.5:
+    #         # rain
+    #         rain_type = random.sample(["drizzle", "heavy", "torrential"], 1)[0]
+    #         transform = A.RandomRain(rain_type=rain_type)
+    #         image1 = transform(image=image)['image']
+    #         label = 1
+    #     else:
+    #         # snow
+    #         transform = A.RandomSnow()
+    #         image1 = transform(image=image)['image']
+    #         label = 0
 
-        image1 = Image.fromarray(image1)
+    #     image1 = Image.fromarray(image1)
 
     if random.random() > 0.5:
         brightness_factor = random.uniform(0.8, 1.2)
@@ -46,10 +46,10 @@ def random_augment(image1, image2, label):
         image1 = transforms.functional.vflip(image1)
         image2 = transforms.functional.vflip(image2)
 
-    if random.random() > 0.5:
-        angle = random.randint(-15, 15)
-        image1 = transforms.functional.rotate(image1, angle=angle)
-        image2 = transforms.functional.rotate(image2, angle=angle)
+    # if random.random() > 0.5:
+    #     angle = random.randint(-15, 15)
+    #     image1 = transforms.functional.rotate(image1, angle=angle)
+    #     image2 = transforms.functional.rotate(image2, angle=angle)
 
     if random.random() > 0.5:
 
