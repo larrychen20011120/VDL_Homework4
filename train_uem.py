@@ -23,9 +23,9 @@ class PromptIRModel(pl.LightningModule):
     def __init__(self, opt):
         super().__init__()
 
-        self.net = PromptIR(decoder=True)
+        self.net = PromptIR(decoder=True, uncertainty=True)
         
-        self.restored_loss_fn  = nn.L1Loss()
+        self.restored_loss_fn  = nn.L1Loss(reduction='none')
         self.opt = opt
 
         self.automatic_optimization = False
@@ -46,12 +46,14 @@ class PromptIRModel(pl.LightningModule):
 
         optimizer = self.optimizers()
 
-        restored = self.net(degrad_img)
-        
-        restored_loss = self.restored_loss_fn(restored, clean_img)
-        total_loss = torch.mean(restored_loss) / self.opt.grad_accumulation
-        
+        restored, variance = self.net(degrad_img)
 
+        variance = variance.mean(dim=0)
+        
+        restored_loss = self.restored_loss_fn(restored, clean_img).mean(dim=0)
+        
+        total_loss = torch.mean(1.0/variance * restored_loss) + torch.log(torch.mean(variance)) / self.opt.grad_accumulation
+        
         self.manual_backward(total_loss)
 
         if (batch_idx + 1) % self.opt.grad_accumulation == 0:
@@ -65,7 +67,9 @@ class PromptIRModel(pl.LightningModule):
             optimizer.zero_grad()
 
         # Logging to TensorBoard (if installed) by default
-        self.log("Train/Restoration Loss", total_loss)
+        self.log("Train/Restoration Loss", restored_loss.mean())
+        self.log("Train/Variance", variance.mean())
+        self.log("Train/Total Loss", total_loss)
 
         return total_loss
     
@@ -73,7 +77,7 @@ class PromptIRModel(pl.LightningModule):
         # this is the validation loop
         (label, degrad_patch, clean_patch) = batch
 
-        restored = self.net(degrad_patch)
+        restored, variance = self.net(degrad_patch)
 
         restored_loss = self.restored_loss_fn(restored, clean_patch)
 
@@ -82,7 +86,8 @@ class PromptIRModel(pl.LightningModule):
         psnr, ssim, _ = compute_psnr_ssim(restored, clean_patch)
 
 
-        self.log("Val/Restoration Loss", total_loss) 
+        self.log("Val/Restoration Loss", total_loss.mean())
+        self.log("Val/Variance", variance.mean())
         self.log("Val/PSNR", psnr)
         self.log("Val/SSIM", ssim)
 
@@ -130,7 +135,7 @@ class PromptIRModel(pl.LightningModule):
 
 import os
 
-name = "PromptIRCLS"
+name = "PromptIR-UEM"
 log_entry = os.path.join("logs", name)
 
 def main(opt):    
@@ -204,14 +209,14 @@ if __name__ == '__main__':
     # Input Parameters
     parser.add_argument('--cuda', type=int, default=0)
 
-    parser.add_argument('--epochs', type=int, default=60, help='maximum number of epochs to train the total model.')
+    parser.add_argument('--epochs', type=int, default=100, help='maximum number of epochs to train the total model.')
     parser.add_argument('--batch_size', type=int, default=1,help="Batch size to use per GPU")
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate of encoder.')
     parser.add_argument('--grad_accumulation', type=int, default=16, help='Gradient accumulation steps.')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay of encoder.')
     parser.add_argument('--clip_norm', type=float, default=1.0, help='gradient clipping norm.')
     parser.add_argument('--num_workers', type=int, default=16, help='number of workers.')
-    parser.add_argument('--warmup_epochs', type=int, default=3, help='number of warmup epochs.')
+    parser.add_argument('--warmup_epochs', type=int, default=6, help='number of warmup epochs.')
     parser.add_argument('--fold', type=int, default=0, help='which fold to run.')
 
     # path
@@ -229,6 +234,3 @@ if __name__ == '__main__':
 
     
     main(opt)
-
-
-

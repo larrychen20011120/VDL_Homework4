@@ -8,35 +8,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 import albumentations as A
 
-def random_augment(image1, image2, label):
-
-    # if random.random() < 0.3:
-
-    #     image = np.asarray(image2)
-
-    #     if random.random() < 0.5:
-    #         # rain
-    #         rain_type = random.sample(["drizzle", "heavy", "torrential"], 1)[0]
-    #         transform = A.RandomRain(rain_type=rain_type)
-    #         image1 = transform(image=image)['image']
-    #         label = 1
-    #     else:
-    #         # snow
-    #         transform = A.RandomSnow()
-    #         image1 = transform(image=image)['image']
-    #         label = 0
-
-    #     image1 = Image.fromarray(image1)
-
-    if random.random() > 0.5:
-        brightness_factor = random.uniform(0.8, 1.2)
-        image1 = transforms.functional.adjust_brightness(image1, brightness_factor=brightness_factor)
-        image2 = transforms.functional.adjust_brightness(image2, brightness_factor=brightness_factor)
-
-    if random.random() > 0.5:
-        contrast_factor = random.uniform(0.8, 1.2)
-        image1 = transforms.functional.adjust_contrast(image1, contrast_factor=contrast_factor)
-        image2 = transforms.functional.adjust_contrast(image2, contrast_factor=contrast_factor)
+def random_augment(image1, image2):
     
     if random.random() > 0.5:
         image1 = transforms.functional.hflip(image1)
@@ -46,12 +18,12 @@ def random_augment(image1, image2, label):
         image1 = transforms.functional.vflip(image1)
         image2 = transforms.functional.vflip(image2)
 
-    # if random.random() > 0.5:
-    #     angle = random.randint(-15, 15)
-    #     image1 = transforms.functional.rotate(image1, angle=angle)
-    #     image2 = transforms.functional.rotate(image2, angle=angle)
-
     if random.random() > 0.5:
+        degree = random.sample([0, 90, 180, 270], k=1)[0]
+        image1 = transforms.functional.rotate(image1, angle=degree)
+        image2 = transforms.functional.rotate(image2, angle=degree)
+
+    if random.random() > 0.75:
 
         top = random.randint(0, image1.size[0]//2)
         left = random.randint(0, image1.size[1]//2)
@@ -66,8 +38,7 @@ def random_augment(image1, image2, label):
             image2, top, left, height, width, size=size
         )
 
-
-    return image1, image2, label
+    return image1, image2
 
 
 class HW4Dataset(Dataset):
@@ -120,7 +91,7 @@ class HW4Dataset(Dataset):
 
             degrad_img = Image.open(degraded_path).convert('RGB')
             clean_img =  Image.open(clean_path).convert('RGB')
-            degrad_img, clean_img, label = random_augment(degrad_img, clean_img, label)
+            degrad_img, clean_img = random_augment(degrad_img, clean_img)
 
         else:
             degrad_img = Image.open(degraded_path).convert('RGB')
