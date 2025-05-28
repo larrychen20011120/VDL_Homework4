@@ -399,5 +399,5 @@ if __name__ == "__main__":
     print(f"Small model params: {total_params/1e6:.2f}M")
 
     with torch.no_grad():
-        test_input = torch.randn((1, 3, 256, 256))
+        test_input = torch.randn((1, 3, 128, 128))
         print(model(test_input).shape)

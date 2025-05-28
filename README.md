@@ -1,109 +1,82 @@
-# PromptIR: Prompting for All-in-One Blind Image Restoration (NeurIPS'23)
+# VDL_Homework4
+## Introduction
+This is the HW4 in visual deep learning. In this project, we should restore the degraded images from 2 types of degradation, rain and snow, without knowing their actual type. I use `PromptIR` model, the state-of-the-art model for **all-in-one image restoration**, to tackle this task. I adopted the original model structure, but applying the **multi-objective loss function with tunable uncertainty loss weights**.
+ 
+I choose AdamW as the optimizer and apply cosine annealing learning decay with warmup to train the `PromptIR` model from scratch. The detailed hyper-parameters for training is shown as the following:
 
-[Vaishnav Potlapalli](https://www.vaishnavrao.com/), [Syed Waqas Zamir](https://scholar.google.ae/citations?hl=en&user=POoai-QAAAAJ), [Salman Khan](https://salman-h-khan.github.io/) and [Fahad Shahbaz Khan](https://scholar.google.es/citations?user=zvaeYnUAAAAJ&hl=en)
+![image](https://github.com/user-attachments/assets/a3772d52-6a1d-4215-a4fe-c607a5e6e8fa)
 
-[![paper](https://img.shields.io/badge/arXiv-Paper-<COLOR>.svg)](https://arxiv.org/abs/2306.13090)
+For inference, rather than feeding the full 256×256×3 image into our model, we first extract overlapping 128×128×3 patches using a 64-pixel stride. At test time, each patch is augmented by rotating it 0°, 90°, 180°, and 270°, restoring each rotated version independently, and then averaging their pixel values to get the patch’s final output. We then stitch all restored patches back together by averaging pixel values in their overlapping areas to reconstruct the full image. Inference experiments show that both patch-wise processing and rotational test-time augmentation significantly improve final performance..
 
 
-<hr />
+## Project structure
+- `hi.py`: is the file for exploring train/test image size -> all are **(256,256,3)**
+- `val_utils.py`: is the utility function for computing PSNR and SSIM score
+- `data_utils.py`: is the file describe the dataset decriptions and augmentations
+- `test.py`: simple inference
+- `test_ensemble.py`: is the file for TTA and stride tricks in inferencing.
+- python files start with train is the training file with different losses
 
-> **Abstract:** *Image restoration involves recovering a high-quality clean image from its degraded
-version. Deep learning-based methods have significantly improved image restora-
-tion performance, however, they have limited generalization ability to different
-degradation types and levels. This restricts their real-world application since it
-requires training individual models for each specific degradation and knowing the
-input degradation type to apply the relevant model. We present a prompt-based
-learning approach, PromptIR, for All-In-One image restoration that can effectively
-restore images from various types and levels of degradation. In particular, our
-method uses prompts to encode degradation-specific information, which is then
-used to dynamically guide the restoration network. This allows our method to
-generalize to different degradation types and levels, while still achieving state-of-
-the-art results on image denoising, deraining, and dehazing. Overall, PromptIR
-offers a generic and efficient plugin module with few lightweight prompts that can
-be used to restore images of various types and levels of degradation with no prior
-information of corruptions.* 
-<hr />
 
-## Network Architecture
+## How to run the code
+- install the dependencies and activate the environment
+  ```
+  conda env create --file env.yaml
+  conda activate DL-Image
+  ```
+- You can get some examples of training batch with augmentation by running following script, it will generate `example_augmented_images.png`
+  ```
+  python dataset_utils.py
+  ```
+- See the model size both UNet-like backbone or SegNet-like backbone
+  ```
+  python net/model.py
+  python net/model_segnet.py
+  ```
+- training with uncertainty weighted losses (the best of our experiments)
+  ```
+  python train_uem.py
+  ```
 
-<img src = "mainfig.png"> 
+- Inference with trained model
+  - simple inference (under uncertainty weighted losses)
+    ```
+    python test.py --method 2 --ckpt_name "YOUR WEIGHT"
+    ```
+  - complicated inference (under uncertainty weighted losses)
+    ```
+    python test_ensemble.py --method 2 --ckpt_name "YOUR WEIGHT"
+    ```
 
-## Installation and Data Preparation
 
-See [INSTALL.md](INSTALL.md) for the installation of dependencies and dataset preperation required to run this codebase.
+## Performance
 
-## Training
+The training record.
 
-After preparing the training data in ```data/``` directory, use 
-```
-python train.py
-```
-to start the training of the model. Use the ```de_type``` argument to choose the combination of degradation types to train on. By default it is set to all the 3 degradation types (noise, rain, and haze).
 
-Example Usage: If we only want to train on deraining and dehazing:
-```
-python train.py --de_type derain dehaze
-```
 
-## Testing
+<hr>
 
-After preparing the testing data in ```test/``` directory, place the mode checkpoint file in the ```ckpt``` directory. The pretrained model can be downloaded [here](https://drive.google.com/file/d/1j-b5Od70pGF7oaCqKAfUzmf-N-xEAjYl/view?usp=sharingg), alternatively, it is also available under the releases tab. To perform the evalaution use
-```
-python test.py --mode {n}
-```
-```n``` is a number that can be used to set the tasks to be evaluated on, 0 for denoising, 1 for deraining, 2 for dehaazing and 3 for all-in-one setting.
+The validation score of my method.
 
-Example Usage: To test on all the degradation types at once, run:
 
-```
-python test.py --mode 3
-```
 
-## Demo
-To obtain visual results from the model ```demo.py``` can be used. After placing the saved model file in ```ckpt``` directory, run:
-```
-python demo.py --test_path {path_to_degraded_images} --output_path {save_images_here}
-```
-Example usage to run inference on a directory of images:
-```
-python demo.py --test_path './test/demo/' --output_path './output/demo/'
-```
-Example usage to run inference on an image directly:
-```
-python demo.py --test_path './test/demo/image.png' --output_path './output/demo/'
-```
-To use tiling option while running ```demo.py``` set ```--tile``` option to ```True```. The Tile size and Tile overlap parameters can be adjusted using ```--tile_size``` and ```--tile_overlap``` options respectively.
+<hr>
 
 
 
 
-## Results
-Performance results of the PromptIR framework trained under the all-in-one setting
+<hr>
 
-<summary><strong>Table</strong> </summary>
-
-<img src = "prompt-ir-results.png"> 
-
-<summary><strong>Visual Results</strong></summary>
-
-The visual results of the PromptIR model evaluated under the all-in-one setting can be downloaded [here](https://drive.google.com/drive/folders/1Sm-mCL-i4OKZN7lKuCUrlMP1msYx3F6t?usp=sharing)
+The PSNR score on the public leaderboard is and the one on the private leaderboard is
 
 
+## Reference
+[1] Potlapalli, V., Zamir, S. W., Khan, S. H., & Shahbaz Khan, F. (2023). Promptir: Prompting for all-in-one image restoration. Advances in Neural Information Processing Systems, 36, 71275-71293.
 
-## Citation
-If you use our work, please consider citing:
+[2]	Zhao, H., Gallo, O., Frosio, I., & Kautz, J. (2016). Loss functions for image restoration with neural networks. IEEE Transactions on computational imaging, 3(1), 47-57.
 
-    @inproceedings{potlapalli2023promptir,
-      title={PromptIR: Prompting for All-in-One Image Restoration},
-      author={Potlapalli, Vaishnav and Zamir, Syed Waqas and Khan, Salman and Khan, Fahad},
-      booktitle={Thirty-seventh Conference on Neural Information Processing Systems},
-      year={2023}
-    }
+[3]	Mustafa, A., Mikhailiuk, A., Iliescu, D. A., Babbar, V., & Mantiuk, R. K. (2022). Training a task-specific image reconstruction loss. In Proceedings of the IEEE/CVF winter conference on applications of computer vision (pp. 2319-2328).
 
-
-## Contact
-Should you have any questions, please contact pvaishnav2718@gmail.com
-
-
-**Acknowledgment:** This code is based on the [AirNet](https://github.com/XLearning-SCU/2022-CVPR-AirNet) and [Restormer](https://github.com/swz30/Restormer) repositories. 
-
+[4]	Kendall, A., Gal, Y., & Cipolla, R. (2018). Multi-task learning using uncertainty to weigh losses for scene geometry and semantics. In Proceedings of the IEEE conference on computer vision and pattern recognition (pp. 7482-7491).
+ 
