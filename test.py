@@ -12,6 +12,7 @@ from net.model import PromptIR
 
 import lightning.pytorch as pl
 from PIL import Image
+from train_lpips import LPIPSLoss
 
 class PromptIRModel(pl.LightningModule):
     def __init__(self):
@@ -42,10 +43,22 @@ class PromptIRModelSSIM(pl.LightningModule):
         super().__init__()
 
         self.net = PromptIR(decoder=True)
-        # self.alpha = torch.nn.Parameter(torch.tensor(-3.0), requires_grad=True)
+        self.alpha = torch.nn.Parameter(torch.tensor(-3.0), requires_grad=True)
 
     def forward(self,x):
         return self.net(x)
+
+class PromptIRModelLPIPS(pl.LightningModule):
+    def __init__(self):
+        
+        super().__init__()
+
+        self.net = PromptIR(decoder=True)
+        self.perceptual_loss = LPIPSLoss()
+
+    def forward(self,x):
+        return self.net(x)
+    
     
 
 def predict(net, img_patch, tta=False):
@@ -105,6 +118,8 @@ if __name__ == '__main__':
         
     elif args.method == 2:
         net = PromptIRModelSSIM.load_from_checkpoint(args.ckpt_name)
+    elif args.method == 3:
+        net = PromptIRModelLPIPS.load_from_checkpoint(args.ckpt_name)
 
     net = net.to(args.device)
     net.eval()
@@ -112,7 +127,9 @@ if __name__ == '__main__':
     entry = os.path.join("hw4_release_dataset", "test", "degraded")
     images_dict = {}
 
-    for fn in tqdm(os.listdir(entry)):
+    first_saved = False
+
+    for fn in tqdm(sorted(os.listdir(entry))):
         # 读取 degraded image
         img = Image.open(os.path.join(entry, fn)).convert('RGB')
         img = transforms.ToTensor()(img).unsqueeze(0).to(args.device)  # 1×3×256×256
@@ -138,6 +155,13 @@ if __name__ == '__main__':
 
             # 转 numpy、放大到 [0,255]
             out_np = (restored.squeeze(0).clamp(0,1) * 255).cpu().numpy().astype(np.uint8)
+
+        if not first_saved:
+            # out_np is (3, H, W), so transpose to (H, W, 3)
+            first_img = Image.fromarray(out_np.transpose(1, 2, 0))
+            first_img.save('first_restored.png')
+            first_saved = True
+            exit()
 
         images_dict[fn] = out_np
 

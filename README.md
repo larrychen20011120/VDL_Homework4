@@ -41,11 +41,11 @@ For inference, rather than feeding the full 256×256×3 image into our model, we
 - Inference with trained model
   - simple inference (under uncertainty weighted losses)
     ```
-    python test.py --method 2 --ckpt_name "YOUR WEIGHT"
+    python test.py --method 1 --ckpt_name "YOUR WEIGHT"
     ```
   - complicated inference (under uncertainty weighted losses)
     ```
-    python test_ensemble.py --method 2 --ckpt_name "YOUR WEIGHT"
+    python test_ensemble.py --method 1 --ckpt_name "YOUR WEIGHT"
     ```
 
 
@@ -53,22 +53,23 @@ For inference, rather than feeding the full 256×256×3 image into our model, we
 
 The training record.
 
-
+![](asset/train.png)
 
 <hr>
 
 The validation score of my method.
 
-
-
-<hr>
-
-
-
+![](asset/val.png)
 
 <hr>
 
-The PSNR score on the public leaderboard is and the one on the private leaderboard is
+The following is the case compared with degraded image and restored one by my method.
+
+![](asset/restored.png)
+
+<hr>
+
+The PSNR score on the public leaderboard is **31.23** and the one on the private leaderboard is **30.52**
 
 
 ## Reference

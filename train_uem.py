@@ -29,7 +29,7 @@ class PromptIRModel(pl.LightningModule):
         self.restored_loss_fn  = nn.L1Loss()
         self.ssim_loss_fn = SSIM(data_range=1.0, size_average=True, channel=3)
         self.log_sigma_l1 = torch.nn.Parameter(torch.tensor(0.0), requires_grad=True)
-        self.log_sigma_ssim = torch.nn.Parameter(torch.tensor(-2.0), requires_grad=True)
+        self.log_sigma_ssim = torch.nn.Parameter(torch.tensor(0.0), requires_grad=True)
 
         self.opt = opt
 
