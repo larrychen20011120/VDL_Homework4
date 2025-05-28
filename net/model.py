@@ -14,7 +14,6 @@ from einops import rearrange
 from einops.layers.torch import Rearrange
 import time
 
-
 ##########################################################################
 ## Layer Norm
 

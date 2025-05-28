@@ -8,9 +8,9 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
-# from utils.dataset_utils import PromptTrainDataset
 from dataset_utils import HW4Dataset
-from net.model import PromptIR, UEM
+from net.model import PromptIR
+from pytorch_msssim import SSIM
 from val_utils import compute_psnr_ssim
 import numpy as np
 
@@ -25,9 +25,10 @@ class PromptIRModel(pl.LightningModule):
         super().__init__()
 
         self.net = PromptIR(decoder=True)
-        self.uem = UEM(256, 2)
         
-        self.restored_loss_fn  = nn.L1Loss(reduction='none')
+        self.restored_loss_fn  = nn.L1Loss()
+        self.ssim_loss_fn = SSIM(data_range=1.0, size_average=True, channel=3)
+        self.alpha = 0.16
         self.opt = opt
 
         self.automatic_optimization = False
@@ -48,74 +49,79 @@ class PromptIRModel(pl.LightningModule):
 
         optimizer = self.optimizers()
 
-        restored = self.net(degrad_img)            # (B,3,H,W)
+        restored = self.net(degrad_img)
+        
+        restored_loss = self.restored_loss_fn(restored, clean_img)
+        ssim_loss = 1 - self.ssim_loss_fn(restored, clean_img)
+        alpha_sigmoid = self.alpha #torch.sigmoid(self.alpha)
 
-        # ❶ 像素 L1
-        pix_loss = self.restored_loss_fn(restored, clean_img).mean(1)   # (B,H,W)
-
-        # ❷ 估計 log σ² (detach restored → 按論文只對 UEM 回傳梯度，保護主網)
-        log_sigma2 = self.uem(restored.detach())      # (B,K,H,W)
-        sigma2     = torch.exp(log_sigma2).clamp(1e-6)
-
-        # ❸ 依 label 換通道
-        sigma2_sel = sigma2[torch.arange(restored.size(0)), label]  # (B,H,W)
-
-        # ❹ TUR 像素 loss
-        tur = pix_loss / (2.0 * sigma2_sel) + 0.5 * torch.log(sigma2_sel)
-        total_loss = tur.mean() / self.opt.grad_accumulation
+        total_loss = (
+                        alpha_sigmoid * restored_loss + (1 - alpha_sigmoid) * ssim_loss
+                     ) / self.opt.grad_accumulation
+        
 
         self.manual_backward(total_loss)
 
         if (batch_idx + 1) % self.opt.grad_accumulation == 0:
-            self.clip_gradients(optimizer, self.opt.clip_norm, "norm")
+            if self.opt.clip_norm > 0:
+                # Gradient clipping
+                torch.nn.utils.clip_grad_norm_(
+                    self.parameters(), 
+                    self.opt.clip_norm
+                )
             optimizer.step()
             optimizer.zero_grad()
 
-        self.log("Train/L_total", total_loss)
-        for k in range(log_sigma2.size(1)):
-            self.log(f"sigma2/task{k}", sigma2[:, k].mean())
-            self.log("Train/Total Loss", total_loss)
+        # Logging to TensorBoard (if installed) by default
+        self.log("Train/L1 Loss", restored_loss, prog_bar=True)
+        self.log("Train/SSIM Loss", ssim_loss, prog_bar=True)
+        self.log("Train/Alpha", alpha_sigmoid, prog_bar=True)
+        self.log("Train/Total Loss", total_loss)
 
         return total_loss
     
     def validation_step(self, batch, batch_idx):
         # this is the validation loop
         (label, degrad_patch, clean_patch) = batch
+
         restored = self.net(degrad_patch)
-        
-        loss = self.restored_loss_fn(restored, clean_patch).mean()
+
+        restored_loss = self.restored_loss_fn(restored, clean_patch)
+        ssim_loss = 1 - self.ssim_loss_fn(restored, clean_patch)
+        alpha_sigmoid = self.alpha #torch.sigmoid(self.alpha)
+        total_loss = alpha_sigmoid * restored_loss + (1 - alpha_sigmoid) * ssim_loss
 
         psnr, ssim, _ = compute_psnr_ssim(restored, clean_patch)
 
-        self.log("Val/Total Loss", loss)
 
+        self.log("Val/Restoration Loss", total_loss) 
         self.log("Val/PSNR", psnr)
         self.log("Val/SSIM", ssim)
 
     
     def configure_optimizers(self):
         
-        optimizer = optim.AdamW(
+        optimizer = optim.Adam(
             self.parameters(), 
             lr=self.opt.lr,
             weight_decay=self.opt.weight_decay,
         )
 
         warmup_epochs = self.opt.warmup_epochs
-        
 
         if warmup_epochs != 0:
 
             warmup_scheduler = LinearLR(
                 optimizer,
-                start_factor=1e-4,     
+                start_factor=1e-3,     
                 end_factor=1.0,        
                 total_iters=warmup_epochs
             )
+            
             cosine_scheduler = CosineAnnealingLR(
                 optimizer,
                 T_max=self.opt.epochs - warmup_epochs,
-                eta_min=1e-6,
+                eta_min=1e-7,
             )
 
             scheduler = SequentialLR(
@@ -123,7 +129,6 @@ class PromptIRModel(pl.LightningModule):
                 schedulers=[warmup_scheduler, cosine_scheduler],
                 milestones=[warmup_epochs],
             )
-            
         else:
             scheduler = CosineAnnealingLR(
                 optimizer,
@@ -137,7 +142,7 @@ class PromptIRModel(pl.LightningModule):
 
 import os
 
-name = "PromptIR-UEM"
+name = "PromptIR-SSIM_FixedAlpha-2"
 log_entry = os.path.join("logs", name)
 
 def main(opt):    
@@ -147,9 +152,10 @@ def main(opt):
     ### train test split
 
     seed = 313551058
-    val_size = int(0.2 * 1600)
+    ratio = 1 / opt.fold
+    val_size = int(ratio * 1600)
     ids = list(range(1, 1601))
-    fold = opt.fold
+    fold = 0
     random.seed(seed)
 
     random.shuffle(ids)
@@ -193,7 +199,6 @@ def main(opt):
         logger=logger,
         callbacks=[checkpoint_callback],
         check_val_every_n_epoch=1,
-        precision=16,
     )
 
 
@@ -211,19 +216,18 @@ if __name__ == '__main__':
     # Input Parameters
     parser.add_argument('--cuda', type=int, default=0)
 
-    parser.add_argument('--epochs', type=int, default=100, help='maximum number of epochs to train the total model.')
-    parser.add_argument('--batch_size', type=int, default=3,help="Batch size to use per GPU")
-    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate of encoder.')
-    parser.add_argument('--grad_accumulation', type=int, default=6, help='Gradient accumulation steps.')
+    parser.add_argument('--epochs', type=int, default=200, help='maximum number of epochs to train the total model.')
+    parser.add_argument('--batch_size', type=int, default=4,help="Batch size to use per GPU")
+    parser.add_argument('--lr', type=float, default=2e-4, help='learning rate of encoder.')
+    parser.add_argument('--grad_accumulation', type=int, default=8, help='Gradient accumulation steps.')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay of encoder.')
-    parser.add_argument('--clip_norm', type=float, default=1.0, help='gradient clipping norm.')
+    parser.add_argument('--clip_norm', type=float, default=-1.0, help='gradient clipping norm.')
     parser.add_argument('--num_workers', type=int, default=16, help='number of workers.')
-    parser.add_argument('--warmup_epochs', type=int, default=5, help='number of warmup epochs.')
-    parser.add_argument('--loss_w', type=float, default=0.1, help='loss weight of classification')
-    parser.add_argument('--fold', type=int, default=0, help='which fold to run.')
+    parser.add_argument('--warmup_epochs', type=int, default=15, help='number of warmup epochs.')
+    parser.add_argument('--fold', type=int, default=10, help='which fold to run.')
 
     # path
-    parser.add_argument('--ckpt_path', type=str, default="ckpt/", help='checkpoint save path')
+    # parser.add_argument('--ckpt_path', type=str, default="ckpt/", help='checkpoint save path')
     parser.add_argument("--ckpt_dir",type=str,default=f"train_ckpt/{name}",help = "Name of the Directory where the checkpoint is to be saved")
     parser.add_argument("--num_gpus",type=int,default= 1,help = "Number of GPUs to use for training")
 
@@ -237,6 +241,3 @@ if __name__ == '__main__':
 
     
     main(opt)
-
-
-

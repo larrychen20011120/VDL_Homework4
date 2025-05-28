@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
 from dataset_utils import HW4Dataset
-from net.model import PromptIR
+from net.model_segnet import PromptIR_SegNet
 from pytorch_msssim import SSIM
 from val_utils import compute_psnr_ssim
 import numpy as np
@@ -24,7 +24,7 @@ class PromptIRModel(pl.LightningModule):
     def __init__(self, opt):
         super().__init__()
 
-        self.net = PromptIR(decoder=True)
+        self.net = PromptIR_SegNet()
         
         self.restored_loss_fn  = nn.L1Loss()
         self.ssim_loss_fn = SSIM(data_range=1.0, size_average=True, channel=3)
@@ -166,7 +166,7 @@ class PromptIRModel(pl.LightningModule):
 
 import os
 
-name = "PromptIR-SSIM-UEM2"
+name = "PromptIR-SSIM-UEM-SegNet"
 log_entry = os.path.join("logs", name)
 
 def main(opt):    

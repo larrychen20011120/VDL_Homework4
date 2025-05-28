@@ -10,13 +10,24 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
 from dataset_utils import HW4Dataset
 from net.model import PromptIR
-from pytorch_msssim import SSIM
 from val_utils import compute_psnr_ssim
 import numpy as np
 
 import lightning.pytorch as pl
 from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
+
+
+import lpips  # pip install lpips
+
+class LPIPSLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.loss_fn = lpips.LPIPS(net='vgg')  # Or 'vgg'
+        self.loss_fn.eval()
+
+    def forward(self, x, y):
+        return self.loss_fn(x, y).mean()
 
 
 
@@ -26,11 +37,7 @@ class PromptIRModel(pl.LightningModule):
 
         self.net = PromptIR(decoder=True)
         
-        self.restored_loss_fn  = nn.L1Loss()
-        self.ssim_loss_fn = SSIM(data_range=1.0, size_average=True, channel=3)
-        self.log_sigma_l1 = torch.nn.Parameter(torch.tensor(0.0), requires_grad=True)
-        self.log_sigma_ssim = torch.nn.Parameter(torch.tensor(-2.0), requires_grad=True)
-
+        self.perceptual_loss = LPIPSLoss()
         self.opt = opt
 
         self.automatic_optimization = False
@@ -53,19 +60,10 @@ class PromptIRModel(pl.LightningModule):
 
         restored = self.net(degrad_img)
         
-        restored_loss = self.restored_loss_fn(restored, clean_img)
-        ssim_loss = 1 - self.ssim_loss_fn(restored, clean_img)
-        
-        sigma_l1 = torch.exp(self.log_sigma_l1)
-        sigma_ssim = torch.exp(self.log_sigma_ssim)
+        perceptual = self.perceptual_loss(restored, clean_img)
 
-        # Multi-task loss
-        total_loss = (
-            (1 / (2 * sigma_l1 ** 2)) * restored_loss +
-            (1 / (2 * sigma_ssim ** 2)) * ssim_loss +
-            self.log_sigma_l1 +
-            self.log_sigma_ssim
-        ) / self.opt.grad_accumulation    
+        total_loss = perceptual / self.opt.grad_accumulation
+        
 
         self.manual_backward(total_loss)
 
@@ -80,10 +78,7 @@ class PromptIRModel(pl.LightningModule):
             optimizer.zero_grad()
 
         # Logging to TensorBoard (if installed) by default
-        self.log("Train/L1 Loss", restored_loss, prog_bar=True)
-        self.log("Train/SSIM Loss", ssim_loss, prog_bar=True)
-        self.log("Train/L1 Alpha", self.log_sigma_l1.exp(), prog_bar=True)
-        self.log("Train/SSIM Alpha", self.log_sigma_ssim.exp(), prog_bar=True)
+        self.log("Train/LPIPS Loss", perceptual, prog_bar=True)
         self.log("Train/Total Loss", total_loss)
 
         return total_loss
@@ -94,42 +89,24 @@ class PromptIRModel(pl.LightningModule):
 
         restored = self.net(degrad_patch)
 
-        restored_loss = self.restored_loss_fn(restored, clean_patch)
-        ssim_loss = 1 - self.ssim_loss_fn(restored, clean_patch)
+        perceptual = self.perceptual_loss(restored, clean_patch)
 
-        sigma_l1 = torch.exp(self.log_sigma_l1)
-        sigma_ssim = torch.exp(self.log_sigma_ssim)
-
-        total_loss = (
-            (1 / (2 * sigma_l1 ** 2)) * restored_loss +
-            (1 / (2 * sigma_ssim ** 2)) * ssim_loss +
-            self.log_sigma_l1 +
-            self.log_sigma_ssim
-        ) / self.opt.grad_accumulation
 
         psnr, ssim, _ = compute_psnr_ssim(restored, clean_patch)
 
 
-        self.log("Val/Restoration Loss", total_loss) 
+        self.log("Val/Restoration Loss", perceptual) 
         self.log("Val/PSNR", psnr)
         self.log("Val/SSIM", ssim)
 
     
     def configure_optimizers(self):
         
-        decay_params = []
-        no_decay_params = []
-
-        for name, param in self.named_parameters():
-            if "log_sigma" in name:
-                no_decay_params.append(param)
-            else:
-                decay_params.append(param)
-
-        optimizer = optim.AdamW([
-            {'params': decay_params, 'weight_decay': self.opt.weight_decay},
-            {'params': no_decay_params, 'weight_decay': 0.0}
-        ], lr=self.opt.lr)
+        optimizer = optim.Adam(
+            self.parameters(), 
+            lr=self.opt.lr,
+            weight_decay=self.opt.weight_decay,
+        )
 
         warmup_epochs = self.opt.warmup_epochs
 
@@ -166,7 +143,7 @@ class PromptIRModel(pl.LightningModule):
 
 import os
 
-name = "PromptIR-SSIM-UEM2"
+name = "PromptIR-LPIPS"
 log_entry = os.path.join("logs", name)
 
 def main(opt):    
@@ -240,14 +217,14 @@ if __name__ == '__main__':
     # Input Parameters
     parser.add_argument('--cuda', type=int, default=0)
 
-    parser.add_argument('--epochs', type=int, default=120, help='maximum number of epochs to train the total model.')
+    parser.add_argument('--epochs', type=int, default=100, help='maximum number of epochs to train the total model.')
     parser.add_argument('--batch_size', type=int, default=4,help="Batch size to use per GPU")
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate of encoder.')
-    parser.add_argument('--grad_accumulation', type=int, default=1, help='Gradient accumulation steps.')
-    parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay of encoder.')
+    parser.add_argument('--grad_accumulation', type=int, default=4, help='Gradient accumulation steps.')
+    parser.add_argument('--weight_decay', type=float, default=0.1, help='weight decay of encoder.')
     parser.add_argument('--clip_norm', type=float, default=1.0, help='gradient clipping norm.')
     parser.add_argument('--num_workers', type=int, default=16, help='number of workers.')
-    parser.add_argument('--warmup_epochs', type=int, default=6, help='number of warmup epochs.')
+    parser.add_argument('--warmup_epochs', type=int, default=5, help='number of warmup epochs.')
     parser.add_argument('--fold', type=int, default=10, help='which fold to run.')
 
     # path

@@ -9,36 +9,30 @@ from torchvision import transforms
 import albumentations as A
 
 def random_augment(image1, image2):
-    
-    if random.random() > 0.5:
-        image1 = transforms.functional.hflip(image1)
-        image2 = transforms.functional.hflip(image2)
-    
-    if random.random() > 0.5:
-        image1 = transforms.functional.vflip(image1)
-        image2 = transforms.functional.vflip(image2)
+
+    H = image1.size[0]
+    W = image2.size[1]
+    patch_size = 128
+    ind_H = random.randint(0, H - patch_size)
+    ind_W = random.randint(0, W - patch_size)
+
+    image1 = image1.crop((ind_W, ind_H, ind_W + patch_size, ind_H + patch_size))
+    image2 = image2.crop((ind_W, ind_H, ind_W + patch_size, ind_H + patch_size))
 
     if random.random() > 0.5:
         degree = random.sample([0, 90, 180, 270], k=1)[0]
         image1 = transforms.functional.rotate(image1, angle=degree)
         image2 = transforms.functional.rotate(image2, angle=degree)
 
-    if random.random() > 0.75:
-
-        top = random.randint(0, image1.size[0]//2)
-        left = random.randint(0, image1.size[1]//2)
-        height = image1.size[0]//2
-        width = image1.size[1]//2
-        size = (image1.size[0], image1.size[1])
-
-        image1 = transforms.functional.resized_crop(
-            image1, top, left, height, width, size=size
-        )
-        image2 = transforms.functional.resized_crop(
-            image2, top, left, height, width, size=size
-        )
+    else:
+        image1 = transforms.functional.hflip(image1)
+        image2 = transforms.functional.hflip(image2)
+        degree = random.sample([0, 90, 180, 270], k=1)[0]
+        image1 = transforms.functional.rotate(image1, angle=degree)
+        image2 = transforms.functional.rotate(image2, angle=degree)
 
     return image1, image2
+
 
 
 class HW4Dataset(Dataset):
@@ -91,7 +85,9 @@ class HW4Dataset(Dataset):
 
             degrad_img = Image.open(degraded_path).convert('RGB')
             clean_img =  Image.open(clean_path).convert('RGB')
+
             degrad_img, clean_img = random_augment(degrad_img, clean_img)
+
 
         else:
             degrad_img = Image.open(degraded_path).convert('RGB')
